@@ -1,5 +1,6 @@
 
 extern crate clap;
+extern crate mmap_rs;
 extern crate rand;
 
 use clap::{Arg, App};
