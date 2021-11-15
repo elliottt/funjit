@@ -1,4 +1,4 @@
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Pos {
     pub x: isize,
     pub y: isize,
@@ -75,6 +75,10 @@ impl Funge93 {
         }
 
         space
+    }
+
+    pub fn get(&self, pos: Pos) -> char {
+        self.rows[pos.y as usize][pos.x as usize]
     }
 
     pub fn get_mut(&mut self, pos: Pos) -> &mut char {
