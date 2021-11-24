@@ -1,8 +1,9 @@
 
 extern crate anyhow;
 extern crate clap;
-extern crate mmap_rs;
 extern crate rand;
+extern crate dynasm;
+extern crate dynasmrt;
 
 use clap::{Arg, App};
 
@@ -26,9 +27,11 @@ fn main() -> Result<(), anyhow::Error> {
     let space = space::Funge93::from_string(&prog);
     let block = jit::Jit::next_block(&space, space::Pos::new(0, 0), space::Pos::east());
 
-    println!("first block: {}", block.code);
-    println!("loops?       {}", block.loops);
+    let mut eval = eval::Eval::new(space);
 
-    eval::Eval::new(space).run();
+    eval.run();
+
+    jit.experiment(&mut eval);
+
     Ok(())
 }

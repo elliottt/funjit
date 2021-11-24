@@ -5,7 +5,7 @@ use super::space;
 
 pub struct Eval {
     cells: space::Funge93,
-    stack: Vec<isize>,
+    pub stack: Vec<isize>,
 }
 
 impl Eval {
