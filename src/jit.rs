@@ -1,20 +1,7 @@
-
+use dynasmrt::{dynasm, mmap::ExecutableBuffer, DynasmApi, DynasmLabelApi};
 use std::collections::HashSet;
-use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
-
-use std::io::Write;
 
 use super::{eval, space};
-
-#[derive(Default)]
-pub struct Block {
-    pub code: String,
-    pub loops: bool,
-    pub mutates: bool,
-}
-
-pub struct Jit {
-}
 
 macro_rules! funjit_dynasm {
     ($ops:ident $($t:tt)*) => {
@@ -29,17 +16,30 @@ macro_rules! prologue {
     ($ops:ident) => {{
         let start = $ops.offset();
         funjit_dynasm!($ops
-            ; sub rsp, 0x8
+            ; push rbp
+            ; mov rbp, rsp
+            ; sub rsp, 16
             ; mov [rsp], rdi
+            ; ->entry:
         );
         start
     }}
 }
 
+macro_rules! set_pc {
+    ($ops:ident, $pc:expr) => {
+        funjit_dynasm!($ops ; mov rsi, QWORD $pc.x as _);
+        call_external!($ops, eval::Eval::set_x);
+        funjit_dynasm!($ops ; mov rsi, QWORD $pc.y as _);
+        call_external!($ops, eval::Eval::set_y);
+    }
+}
+
 macro_rules! epilogue {
-    ($ops:ident) => {
+    ($ops:ident, $terminates:expr) => {
         funjit_dynasm!($ops
-            ; add rsp, 0x8
+            ; mov rax, QWORD $terminates as _
+            ; leave
             ; ret
         )
     }
@@ -54,6 +54,109 @@ macro_rules! call_external {
         )
     }
 }
+
+macro_rules! funjit_debugger {
+    ($ops:ident) => {
+        funjit_dynasm!($ops ; int 3);
+    }
+}
+
+#[derive(Default)]
+pub struct Block {
+    pub code: String,
+    pub loops: bool,
+    pub mutates: bool,
+    pub terminates: bool,
+    pub pc: space::Pos,
+    pub delta: space::Pos,
+}
+
+impl Block {
+    pub fn compile(&self) -> CompiledBlock {
+        let mut ops = dynasmrt::x64::Assembler::new().unwrap();
+
+        let mut string_mode = false;
+
+        let fun = prologue!(ops);
+        for c in self.code.chars() {
+            match c {
+                '"' => string_mode = !string_mode,
+
+                c if string_mode => {
+                    funjit_dynasm!(ops ; mov rsi, QWORD c as _);
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                c @ '0'..='9' => {
+                    let val = c as isize - '0' as isize;
+                    funjit_dynasm!(ops ; mov rsi, QWORD val as _);
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                // would be nice to enforce that this is also the end of the instruction stream
+                '@' => break,
+
+                '.' => call_external!(ops, eval::Eval::output),
+                '~' => call_external!(ops, eval::Eval::input),
+
+                ':' => {
+                    call_external!(ops, eval::Eval::peek);
+                    funjit_dynasm!(ops ; mov rsi, rax);
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                '+' => {
+                    call_external!(ops, eval::Eval::pop);
+                    funjit_dynasm!(ops ; mov [rsp+8], rax);
+                    call_external!(ops, eval::Eval::pop);
+                    funjit_dynasm!(ops
+                       ; add rax, [rsp + 8]
+                       ; mov rsi, rax
+                    );
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                '$' => {
+                    call_external!(ops, eval::Eval::pop);
+                }
+
+                _ => (),
+            }
+        }
+
+        set_pc!(ops, self.pc);
+
+        if self.loops {
+            funjit_dynasm!(ops
+                ; lea rax, [->entry]
+                ; jmp rax
+            );
+        } else {
+            epilogue!(ops, self.terminates);
+        }
+
+        let buffer = ops.finalize().unwrap();
+        let code = unsafe { std::mem::transmute(buffer.ptr(fun)) };
+
+        CompiledBlock {
+            _buffer: buffer,
+            code,
+        }
+    }
+}
+
+pub struct CompiledBlock {
+    _buffer: dynasmrt::mmap::ExecutableBuffer,
+    code: extern "sysv64" fn(&mut eval::Eval) -> bool,
+}
+
+impl CompiledBlock {
+    pub fn run(&self, eval: &mut eval::Eval) -> bool {
+        (self.code)(eval)
+    }
+}
+
+pub struct Jit {}
 
 impl Jit {
     pub fn new() -> Result<Self, anyhow::Error> {
@@ -77,7 +180,14 @@ impl Jit {
                 'v' => delta = space::Pos::south(),
                 '<' => delta = space::Pos::west(),
 
+                '#' => pc += &delta,
+
                 ' ' => (),
+
+                '@' => {
+                    block.terminates = true;
+                    break;
+                }
 
                 c => block.code.push(c),
             }
@@ -90,33 +200,11 @@ impl Jit {
             }
 
             seen.insert(pc);
-
         }
+
+        block.delta = delta;
+        block.pc = pc;
 
         block
     }
-
-    pub fn experiment(&self, eval: &mut eval::Eval) {
-        let mut ops = dynasmrt::x64::Assembler::new().unwrap();
-
-        let test = prologue!(ops);
-        call_external!(ops, eval::Eval::pop);
-        call_external!(ops, eval::Eval::pop);
-        funjit_dynasm!(ops ; mov rsi, QWORD 42);
-        call_external!(ops, eval::Eval::push);
-        funjit_dynasm!(ops ; xor rax, rax);
-        epilogue!(ops);
-
-        let buf = ops.finalize().unwrap();
-        let pop_fun: extern "sysv64" fn(&mut eval::Eval) -> isize = unsafe { std::mem::transmute(buf.ptr(test)) };
-
-        println!("pop: {}\n", pop_fun(eval));
-        println!("pop: {}\n", eval.pop());
-        println!("pop: {}\n", eval.pop());
-    }
-}
-
-extern "sysv64" fn pop(eval: &mut eval::Eval) -> isize {
-    std::io::stdout().write(b"before!\n");
-    eval.pop()
 }

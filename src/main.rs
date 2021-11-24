@@ -27,11 +27,14 @@ fn main() -> Result<(), anyhow::Error> {
     let space = space::Funge93::from_string(&prog);
     let block = jit::Jit::next_block(&space, space::Pos::new(0, 0), space::Pos::east());
 
+    let compiled_block = block.compile();
+
     let mut eval = eval::Eval::new(space);
 
-    eval.run();
+    let res = compiled_block.run(&mut eval);
 
-    jit.experiment(&mut eval);
+    eval.output.flush();
+    println!("");
 
     Ok(())
 }

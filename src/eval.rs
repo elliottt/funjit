@@ -1,23 +1,51 @@
 use rand;
-use std::io::prelude::*;
+use std::io::{self, prelude::*};
 
 use super::space;
 
 pub struct Eval {
     cells: space::Funge93,
+    pub input: Box<dyn Read>,
+    pub output: Box<dyn Write>,
     pub stack: Vec<isize>,
+    pub pc: space::Pos,
 }
 
 impl Eval {
     pub fn new(cells: space::Funge93) -> Self {
         Eval {
             cells,
+            input: Box::new(io::stdin()),
+            output: Box::new(io::stdout()),
             stack: Vec::new(),
+            pc: space::Pos::new(0, 0),
         }
     }
 
     pub fn push(&mut self, val: isize) {
         self.stack.push(val)
+    }
+
+    pub fn set_x(&mut self, x: isize) {
+        self.pc.x = x
+    }
+
+    pub fn set_y(&mut self, y: isize) {
+        self.pc.y = y
+    }
+
+    pub fn input(&mut self) {
+        let mut buf = [0; 1];
+
+        // NOTE: unwrap might cause issues here
+        self.input.read(&mut buf).unwrap();
+        self.push(buf[0] as isize);
+    }
+
+    pub fn output(&mut self) {
+        let val = self.pop();
+        let buf = [val as u8; 1];
+        self.output.write_all(&buf);
     }
 
     pub fn pop(&mut self) -> isize {
