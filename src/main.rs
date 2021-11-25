@@ -22,19 +22,10 @@ fn main() -> Result<(), anyhow::Error> {
     let file = matches.value_of("INPUT").unwrap();
 
     let prog = std::fs::read_to_string(file).expect("Failed to read test.bf");
-    let jit = jit::Jit::new()?;
+    let mut jit = jit::Jit::new()?;
+    let mut eval = eval::Eval::new(space::Funge93::from_string(&prog));
 
-    let space = space::Funge93::from_string(&prog);
-    let block = jit::Jit::next_block(&space, space::Pos::new(0, 0), space::Pos::east());
-
-    let compiled_block = block.compile();
-
-    let mut eval = eval::Eval::new(space);
-
-    let res = compiled_block.run(&mut eval);
-
-    eval.output.flush();
-    println!("");
+    jit.run(&mut eval);
 
     Ok(())
 }

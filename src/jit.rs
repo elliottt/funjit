@@ -1,5 +1,5 @@
 use dynasmrt::{dynasm, mmap::ExecutableBuffer, DynasmApi, DynasmLabelApi};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::{eval, space};
 
@@ -29,9 +29,16 @@ macro_rules! prologue {
 macro_rules! set_pc {
     ($ops:ident, $pc:expr) => {
         funjit_dynasm!($ops ; mov rsi, QWORD $pc.x as _);
-        call_external!($ops, eval::Eval::set_x);
-        funjit_dynasm!($ops ; mov rsi, QWORD $pc.y as _);
-        call_external!($ops, eval::Eval::set_y);
+        funjit_dynasm!($ops ; mov rdx, QWORD $pc.y as _);
+        call_external!($ops, eval::Eval::set_pc);
+    }
+}
+
+macro_rules! set_delta {
+    ($ops:ident, $pc:expr) => {
+        funjit_dynasm!($ops ; mov rsi, QWORD $pc.x as _);
+        funjit_dynasm!($ops ; mov rdx, QWORD $pc.y as _);
+        call_external!($ops, eval::Eval::set_delta);
     }
 }
 
@@ -58,6 +65,16 @@ macro_rules! call_external {
 macro_rules! funjit_debugger {
     ($ops:ident) => {
         funjit_dynasm!($ops ; int 3);
+    }
+}
+
+// pops two values from the stack, and puts them in rsi and rax respectively
+macro_rules! binop {
+    ($ops:ident) => {
+        call_external!($ops, eval::Eval::pop);
+        funjit_dynasm!($ops ; mov [rsp + 8], rax);
+        call_external!($ops, eval::Eval::pop);
+        funjit_dynasm!($ops ; mov rsi, [rsp + 8]);
     }
 }
 
@@ -96,7 +113,8 @@ impl Block {
                 // would be nice to enforce that this is also the end of the instruction stream
                 '@' => break,
 
-                '.' => call_external!(ops, eval::Eval::output),
+                ',' => call_external!(ops, eval::Eval::output),
+                '.' => call_external!(ops, eval::Eval::output_number),
                 '~' => call_external!(ops, eval::Eval::input),
 
                 ':' => {
@@ -106,13 +124,20 @@ impl Block {
                 }
 
                 '+' => {
-                    call_external!(ops, eval::Eval::pop);
-                    funjit_dynasm!(ops ; mov [rsp+8], rax);
-                    call_external!(ops, eval::Eval::pop);
-                    funjit_dynasm!(ops
-                       ; add rax, [rsp + 8]
-                       ; mov rsi, rax
-                    );
+                    binop!(ops);
+                    funjit_dynasm!(ops ; add rsi, rax);
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                '-' => {
+                    binop!(ops);
+                    funjit_dynasm!(ops ; sub rsi, rax);
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                '*' => {
+                    binop!(ops);
+                    funjit_dynasm!(ops ; imul rsi, rax);
                     call_external!(ops, eval::Eval::push);
                 }
 
@@ -206,5 +231,48 @@ impl Jit {
         block.pc = pc;
 
         block
+    }
+
+    pub fn run(&mut self, eval: &mut eval::Eval) {
+        let mut blocks: HashMap<space::Pos, CompiledBlock> = HashMap::new();
+
+        loop {
+            if !blocks.contains_key(&eval.pc) {
+                let block = Jit::next_block(&eval.cells, eval.pc, eval.delta);
+                blocks.insert(eval.pc, block.compile());
+            }
+
+            let compiled_block = blocks.get(&eval.pc).unwrap();
+            if compiled_block.run(eval) {
+                break;
+            }
+
+            // at this point we should be at a control instruction, so update delta and take a step
+            // to find the next sequence.
+            match eval.cells.get(eval.pc) {
+                '|' => {
+                    if eval.pop() == 0 {
+                        eval.delta = space::Pos::south();
+                    } else {
+                        eval.delta = space::Pos::north();
+                    }
+                }
+
+                '_' => {
+                    if eval.pop() == 0 {
+                        eval.delta = space::Pos::east()
+                    } else {
+                        eval.delta = space::Pos::west()
+                    }
+                }
+
+                c => {
+                    println!("Unhandled control instruction: {}\n", c);
+                    break;
+                }
+            }
+
+            eval.pc += &eval.delta;
+        }
     }
 }

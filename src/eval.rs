@@ -4,11 +4,12 @@ use std::io::{self, prelude::*};
 use super::space;
 
 pub struct Eval {
-    cells: space::Funge93,
+    pub cells: space::Funge93,
     pub input: Box<dyn Read>,
     pub output: Box<dyn Write>,
     pub stack: Vec<isize>,
     pub pc: space::Pos,
+    pub delta: space::Pos,
 }
 
 impl Eval {
@@ -19,6 +20,7 @@ impl Eval {
             output: Box::new(io::stdout()),
             stack: Vec::new(),
             pc: space::Pos::new(0, 0),
+            delta: space::Pos::new(1, 0),
         }
     }
 
@@ -26,12 +28,14 @@ impl Eval {
         self.stack.push(val)
     }
 
-    pub fn set_x(&mut self, x: isize) {
-        self.pc.x = x
+    pub fn set_pc(&mut self, x: isize, y: isize) {
+        self.pc.x = x;
+        self.pc.y = y;
     }
 
-    pub fn set_y(&mut self, y: isize) {
-        self.pc.y = y
+    pub fn set_delta(&mut self, x: isize, y: isize) {
+        self.delta.x = x;
+        self.delta.y = y;
     }
 
     pub fn input(&mut self) {
@@ -45,7 +49,14 @@ impl Eval {
     pub fn output(&mut self) {
         let val = self.pop();
         let buf = [val as u8; 1];
-        self.output.write_all(&buf);
+        self.output.write_all(&buf).unwrap();
+        self.output.flush().unwrap();
+    }
+
+    pub fn output_number(&mut self) {
+        let val = self.pop();
+        self.output.write_fmt(format_args!("{}", val)).unwrap();
+        self.output.flush();
     }
 
     pub fn pop(&mut self) -> isize {
@@ -102,12 +113,15 @@ impl Eval {
                         std::io::stdin()
                             .read_line(&mut text)
                             .expect("Failed to read a line");
-                        let num = text.trim().parse::<isize>().expect("Failed to read a number");
+                        let num = text
+                            .trim()
+                            .parse::<isize>()
+                            .expect("Failed to read a number");
                         self.push(num);
                     }
 
                     '~' => {
-                        let mut buf = [0;1];
+                        let mut buf = [0; 1];
                         std::io::stdin()
                             .read_exact(&mut buf)
                             .expect("Failed to read a line");
@@ -135,14 +149,12 @@ impl Eval {
                         }
                     }
                     '#' => pc += &delta,
-                    '?' => {
-                        match rand::random::<usize>() % 4 {
-                            0 => delta = space::Pos::north(),
-                            1 => delta = space::Pos::east(),
-                            2 => delta = space::Pos::south(),
-                            _ => delta = space::Pos::west(),
-                        }
-                    }
+                    '?' => match rand::random::<usize>() % 4 {
+                        0 => delta = space::Pos::north(),
+                        1 => delta = space::Pos::east(),
+                        2 => delta = space::Pos::south(),
+                        _ => delta = space::Pos::west(),
+                    },
 
                     // delta operations
                     '^' => delta = space::Pos::north(),
@@ -200,14 +212,14 @@ impl Eval {
                         let y = self.pop();
                         let x = self.pop();
                         let c = self.pop();
-                        let cell = self.cells.get_mut(space::Pos{x, y});
+                        let cell = self.cells.get_mut(space::Pos { x, y });
                         *cell = char::from_u32(c as u32).unwrap();
                     }
 
                     'g' => {
                         let y = self.pop();
                         let x = self.pop();
-                        let c = *self.cells.get_mut(space::Pos{x, y});
+                        let c = *self.cells.get_mut(space::Pos { x, y });
                         self.push(c as isize);
                     }
 
