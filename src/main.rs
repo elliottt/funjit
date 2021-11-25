@@ -8,7 +8,6 @@ extern crate dynasmrt;
 use clap::{Arg, App};
 
 mod space;
-mod eval;
 mod jit;
 
 fn main() -> Result<(), anyhow::Error> {
@@ -23,7 +22,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     let prog = std::fs::read_to_string(file).expect("Failed to read test.bf");
     let mut jit = jit::Jit::new()?;
-    let mut eval = eval::Eval::new(space::Funge93::from_string(&prog));
+    let mut eval = jit::State::new(space::Funge93::from_string(&prog));
 
     jit.run(&mut eval);
 

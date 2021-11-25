@@ -1,11 +1,124 @@
-
 #[allow(unused_imports)]
 use dynasmrt::mmap::ExecutableBuffer;
 
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 use std::collections::{HashMap, HashSet};
+use std::io::{self, prelude::*, BufReader};
 
-use super::{eval, space};
+use super::space;
+
+pub struct State {
+    cells: space::Funge93,
+    input: BufReader<Box<dyn Read>>,
+    output: Box<dyn Write>,
+    stack: Vec<isize>,
+    pc: space::Pos,
+    delta: space::Pos,
+}
+
+impl State {
+    pub fn new(cells: space::Funge93) -> Self {
+        State {
+            cells,
+            input: BufReader::new(Box::new(io::stdin())),
+            output: Box::new(io::stdout()),
+            stack: Vec::new(),
+            pc: space::Pos::new(0, 0),
+            delta: space::Pos::new(1, 0),
+        }
+    }
+
+    pub fn get(&mut self) -> isize {
+        let y = self.pop();
+        let x = self.pop();
+        if y >= 0
+            && y < space::Funge93::HEIGHT as isize
+            && x >= 0
+            && x < space::Funge93::WIDTH as isize
+        {
+            self.cells.get(space::Pos::new(x, y)) as isize
+        } else {
+            0
+        }
+    }
+
+    pub fn put(&mut self) {
+        let y = self.pop();
+        let x = self.pop();
+        let v = self.pop();
+        if y >= 0
+            && y < space::Funge93::HEIGHT as isize
+            && x >= 0
+            && x < space::Funge93::WIDTH as isize
+        {
+            let cell = self.cells.get_mut(space::Pos::new(x, y));
+            *cell = char::from_u32(v as u32).unwrap();
+        }
+    }
+
+    pub fn push(&mut self, val: isize) {
+        self.stack.push(val)
+    }
+
+    pub fn set_pc(&mut self, x: isize, y: isize) {
+        self.pc.x = x;
+        self.pc.y = y;
+    }
+
+    pub fn set_delta(&mut self, x: isize, y: isize) {
+        self.delta.x = x;
+        self.delta.y = y;
+    }
+
+    pub fn input(&mut self) {
+        let mut buf = [0; 1];
+
+        // NOTE: unwrap might cause issues here
+        self.input.read(&mut buf).unwrap();
+        self.push(buf[0] as isize);
+    }
+
+    pub fn output(&mut self) {
+        let val = self.pop();
+        let buf = [val as u8; 1];
+        self.output.write_all(&buf).unwrap();
+        self.output.flush().unwrap();
+    }
+
+    pub fn input_number(&mut self) {
+        let mut text = String::new();
+        self.input
+            .read_line(&mut text)
+            .expect("Failed to read a line");
+        let num = text
+            .trim()
+            .parse::<isize>()
+            .expect("Failed to read a number");
+        self.push(num);
+    }
+
+    pub fn output_number(&mut self) {
+        let val = self.pop();
+        self.output.write_fmt(format_args!("{}", val)).unwrap();
+        self.output.flush().unwrap();
+    }
+
+    pub fn pop(&mut self) -> isize {
+        if let Some(val) = self.stack.pop() {
+            val
+        } else {
+            0
+        }
+    }
+
+    pub fn peek(&mut self) -> isize {
+        if let Some(val) = self.stack.last() {
+            *val
+        } else {
+            0
+        }
+    }
+}
 
 macro_rules! funjit_dynasm {
     ($ops:ident $($t:tt)*) => {
@@ -34,7 +147,7 @@ macro_rules! set_pc {
     ($ops:ident, $pc:expr) => {
         funjit_dynasm!($ops ; mov rsi, QWORD $pc.x as _);
         funjit_dynasm!($ops ; mov rdx, QWORD $pc.y as _);
-        call_external!($ops, eval::Eval::set_pc);
+        call_external!($ops, State::set_pc);
     }
 }
 
@@ -42,7 +155,7 @@ macro_rules! set_delta {
     ($ops:ident, $pc:expr) => {
         funjit_dynasm!($ops ; mov rsi, QWORD $pc.x as _);
         funjit_dynasm!($ops ; mov rdx, QWORD $pc.y as _);
-        call_external!($ops, eval::Eval::set_delta);
+        call_external!($ops, State::set_delta);
     }
 }
 
@@ -71,9 +184,9 @@ macro_rules! call_external {
 // rax = b
 macro_rules! binop {
     ($ops:ident) => {
-        call_external!($ops, eval::Eval::pop);
+        call_external!($ops, State::pop);
         funjit_dynasm!($ops ; mov [rsp + 8], rax);
-        call_external!($ops, eval::Eval::pop);
+        call_external!($ops, State::pop);
         funjit_dynasm!($ops ; mov rsi, [rsp + 8]);
     }
 }
@@ -101,44 +214,44 @@ impl Block {
 
                 c if string_mode => {
                     funjit_dynasm!(ops ; mov rsi, QWORD c as _);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 c @ '0'..='9' => {
                     let val = c as isize - '0' as isize;
                     funjit_dynasm!(ops ; mov rsi, QWORD val as _);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 // would be nice to enforce that this is also the end of the instruction stream
                 '@' => break,
 
-                ',' => call_external!(ops, eval::Eval::output),
-                '.' => call_external!(ops, eval::Eval::output_number),
-                '~' => call_external!(ops, eval::Eval::input),
-                '&' => call_external!(ops, eval::Eval::input_number),
+                ',' => call_external!(ops, State::output),
+                '.' => call_external!(ops, State::output_number),
+                '~' => call_external!(ops, State::input),
+                '&' => call_external!(ops, State::input_number),
 
                 ':' => {
-                    call_external!(ops, eval::Eval::peek);
+                    call_external!(ops, State::peek);
                     funjit_dynasm!(ops ; mov rsi, rax);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '\\' => {
-                    call_external!(ops, eval::Eval::pop);
+                    call_external!(ops, State::pop);
                     funjit_dynasm!(ops ; mov [rsp + 8], rax);
-                    call_external!(ops, eval::Eval::pop);
+                    call_external!(ops, State::pop);
                     funjit_dynasm!(ops
                         ; mov rsi, [rsp + 8]
                         ; mov [rsp + 8], rax
                     );
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                     funjit_dynasm!(ops ; mov rsi, [rsp + 8]);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '!' => {
-                    call_external!(ops, eval::Eval::pop);
+                    call_external!(ops, State::pop);
                     funjit_dynasm!(ops
                         ; mov rsi, QWORD 0
                         ; cmp rax, rsi
@@ -146,7 +259,7 @@ impl Block {
                         ; inc rsi
                         ; write:
                     );
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '`' => {
@@ -158,31 +271,31 @@ impl Block {
                         ; inc rsi
                         ; write:
                     );
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 'g' => {
-                    call_external!(ops, eval::Eval::get);
+                    call_external!(ops, State::get);
                     funjit_dynasm!(ops ; mov rsi, rax);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '+' => {
                     binop!(ops);
                     funjit_dynasm!(ops ; add rsi, rax);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '-' => {
                     binop!(ops);
                     funjit_dynasm!(ops ; sub rsi, rax);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '*' => {
                     binop!(ops);
                     funjit_dynasm!(ops ; imul rsi, rax);
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '/' => {
@@ -192,7 +305,7 @@ impl Block {
                         ; idiv rsi
                         ; mov rsi, rax
                     );
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
                 '%' => {
@@ -202,10 +315,10 @@ impl Block {
                         ; idiv rsi
                         ; mov rsi, rdx
                     );
-                    call_external!(ops, eval::Eval::push);
+                    call_external!(ops, State::push);
                 }
 
-                '$' => call_external!(ops, eval::Eval::pop),
+                '$' => call_external!(ops, State::pop),
 
                 _ => {
                     println!("Unhandled instruction: {}\n", c);
@@ -238,11 +351,11 @@ impl Block {
 
 pub struct CompiledBlock {
     _buffer: dynasmrt::mmap::ExecutableBuffer,
-    code: extern "sysv64" fn(&mut eval::Eval) -> bool,
+    code: extern "sysv64" fn(&mut State) -> bool,
 }
 
 impl CompiledBlock {
-    pub fn run(&self, eval: &mut eval::Eval) -> bool {
+    pub fn run(&self, eval: &mut State) -> bool {
         (self.code)(eval)
     }
 }
@@ -301,7 +414,7 @@ impl Jit {
         block
     }
 
-    pub fn run(&mut self, eval: &mut eval::Eval) {
+    pub fn run(&mut self, eval: &mut State) {
         let mut blocks: HashMap<space::Pos, CompiledBlock> = HashMap::new();
 
         loop {
@@ -339,11 +452,10 @@ impl Jit {
                 // everything else should be compiled
                 _ => {
                     if !blocks.contains_key(&eval.pc) {
-
                         // NOTE: there's no special handling for when the blocks are empty, as the
                         // compiled function will end up setting the pc and delta. This happens
                         // when a block is made up entirely of instructions that change the
-                        // direction of the cursor, or would 
+                        // direction of the cursor, or would
                         let block = Jit::next_block(&eval.cells, eval.pc, eval.delta);
                         blocks.insert(eval.pc, block.compile());
                     }
