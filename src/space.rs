@@ -51,7 +51,7 @@ fn test_pos_move() {
 }
 
 pub struct Funge93 {
-    rows: [[char; Self::WIDTH]; Self::HEIGHT],
+    rows: [[u8; Self::WIDTH]; Self::HEIGHT],
 }
 
 impl Funge93 {
@@ -60,7 +60,7 @@ impl Funge93 {
 
     pub fn new() -> Self {
         Funge93 {
-            rows: [[' '; Self::WIDTH]; Self::HEIGHT],
+            rows: [[b' '; Self::WIDTH]; Self::HEIGHT],
         }
     }
 
@@ -68,20 +68,19 @@ impl Funge93 {
         let mut space = Self::new();
 
         for (y, line) in prog.lines().enumerate().take(Self::HEIGHT) {
-            for (x, c) in line.chars().enumerate().take(Self::WIDTH) {
-                let cell = space.get_mut(Pos { x: x as isize, y: y as isize });
-                *cell = c;
+            for (x, c) in line.bytes().enumerate().take(Self::WIDTH) {
+                space.set(x, y, c)
             }
         }
 
         space
     }
 
-    pub fn get(&self, pos: Pos) -> char {
-        self.rows[pos.y as usize][pos.x as usize]
+    pub fn get(&self, x: usize, y: usize) -> u8 {
+        self.rows[y][x]
     }
 
-    pub fn get_mut(&mut self, pos: Pos) -> &mut char {
-        &mut self.rows[pos.y as usize][pos.x as usize]
+    pub fn set(&mut self, x: usize, y: usize, val: u8) {
+        self.rows[y][x] = val
     }
 }

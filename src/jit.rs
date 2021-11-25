@@ -36,7 +36,7 @@ impl State {
             && x >= 0
             && x < space::Funge93::WIDTH as isize
         {
-            self.cells.get(space::Pos::new(x, y)) as isize
+            self.cells.get(x as usize, y as usize) as isize
         } else {
             0
         }
@@ -51,8 +51,7 @@ impl State {
             && x >= 0
             && x < space::Funge93::WIDTH as isize
         {
-            let cell = self.cells.get_mut(space::Pos::new(x, y));
-            *cell = char::from_u32(v as u32).unwrap();
+            self.cells.set(x as usize, y as usize, v as u8);
         }
     }
 
@@ -373,29 +372,29 @@ impl Jit {
         let mut seen = HashSet::new();
 
         loop {
-            match space.get(pc) {
-                '_' | '|' | '?' => break,
+            match space.get(pc.x as usize, pc.y as usize) {
+                b'_' | b'|' | b'?' => break,
 
-                'p' => {
+                b'p' => {
                     block.mutates = true;
                     break;
                 }
 
-                '@' => {
+                b'@' => {
                     block.terminates = true;
                     break;
                 }
 
-                '^' => delta = space::Pos::north(),
-                '>' => delta = space::Pos::east(),
-                'v' => delta = space::Pos::south(),
-                '<' => delta = space::Pos::west(),
+                b'^' => delta = space::Pos::north(),
+                b'>' => delta = space::Pos::east(),
+                b'v' => delta = space::Pos::south(),
+                b'<' => delta = space::Pos::west(),
 
-                '#' => pc += &delta,
+                b'#' => pc += &delta,
 
-                ' ' => (),
+                b' ' => (),
 
-                c => block.code.push(c),
+                c => block.code.push(c as char),
             }
 
             pc += &delta;
@@ -420,8 +419,8 @@ impl Jit {
         loop {
             // at this point we should be at a control instruction, so update delta and take a step
             // to find the next sequence.
-            match eval.cells.get(eval.pc) {
-                '|' => {
+            match eval.cells.get(eval.pc.x as usize, eval.pc.y as usize) {
+                b'|' => {
                     if eval.pop() == 0 {
                         eval.delta = space::Pos::south();
                     } else {
@@ -429,7 +428,7 @@ impl Jit {
                     }
                 }
 
-                '_' => {
+                b'_' => {
                     if eval.pop() == 0 {
                         eval.delta = space::Pos::east()
                     } else {
@@ -437,14 +436,14 @@ impl Jit {
                     }
                 }
 
-                '?' => match rand::random::<usize>() % 4 {
+                b'?' => match rand::random::<usize>() % 4 {
                     0 => eval.delta = space::Pos::north(),
                     1 => eval.delta = space::Pos::east(),
                     2 => eval.delta = space::Pos::south(),
                     _ => eval.delta = space::Pos::west(),
                 },
 
-                'p' => {
+                b'p' => {
                     blocks.clear();
                     eval.put();
                 }
@@ -455,7 +454,7 @@ impl Jit {
                         // NOTE: there's no special handling for when the blocks are empty, as the
                         // compiled function will end up setting the pc and delta. This happens
                         // when a block is made up entirely of instructions that change the
-                        // direction of the cursor, or would
+                        // direction of the cursor, or whitespace.
                         let block = Jit::next_block(&eval.cells, eval.pc, eval.delta);
                         blocks.insert(eval.pc, block.compile());
                     }
