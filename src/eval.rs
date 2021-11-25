@@ -1,11 +1,11 @@
 use rand;
-use std::io::{self, prelude::*};
+use std::io::{self, Stdin, BufReader, prelude::*};
 
 use super::space;
 
 pub struct Eval {
     pub cells: space::Funge93,
-    pub input: Box<dyn Read>,
+    pub input: BufReader<Box<dyn Read>>,
     pub output: Box<dyn Write>,
     pub stack: Vec<isize>,
     pub pc: space::Pos,
@@ -16,7 +16,7 @@ impl Eval {
     pub fn new(cells: space::Funge93) -> Self {
         Eval {
             cells,
-            input: Box::new(io::stdin()),
+            input: BufReader::new(Box::new(io::stdin())),
             output: Box::new(io::stdout()),
             stack: Vec::new(),
             pc: space::Pos::new(0, 0),
@@ -53,10 +53,22 @@ impl Eval {
         self.output.flush().unwrap();
     }
 
+    pub fn input_number(&mut self) {
+        let mut text = String::new();
+        self.input
+            .read_line(&mut text)
+            .expect("Failed to read a line");
+        let num = text
+            .trim()
+            .parse::<isize>()
+            .expect("Failed to read a number");
+        self.push(num);
+    }
+
     pub fn output_number(&mut self) {
         let val = self.pop();
         self.output.write_fmt(format_args!("{}", val)).unwrap();
-        self.output.flush();
+        self.output.flush().unwrap();
     }
 
     pub fn pop(&mut self) -> isize {
@@ -75,6 +87,7 @@ impl Eval {
         }
     }
 
+    #[allow(dead_code)]
     pub fn run(&mut self) {
         let mut pc = space::Pos::new(0, 0);
         let mut delta = space::Pos::new(1, 0);

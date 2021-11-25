@@ -1,4 +1,8 @@
-use dynasmrt::{dynasm, mmap::ExecutableBuffer, DynasmApi, DynasmLabelApi};
+
+#[allow(unused_imports)]
+use dynasmrt::mmap::ExecutableBuffer;
+
+use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 use std::collections::{HashMap, HashSet};
 
 use super::{eval, space};
@@ -62,13 +66,9 @@ macro_rules! call_external {
     }
 }
 
-macro_rules! funjit_debugger {
-    ($ops:ident) => {
-        funjit_dynasm!($ops ; int 3);
-    }
-}
-
-// pops two values from the stack, and puts them in rsi and rax respectively
+// a b --
+// rsi = a
+// rax = b
 macro_rules! binop {
     ($ops:ident) => {
         call_external!($ops, eval::Eval::pop);
@@ -116,10 +116,24 @@ impl Block {
                 ',' => call_external!(ops, eval::Eval::output),
                 '.' => call_external!(ops, eval::Eval::output_number),
                 '~' => call_external!(ops, eval::Eval::input),
+                '&' => call_external!(ops, eval::Eval::input_number),
 
                 ':' => {
                     call_external!(ops, eval::Eval::peek);
                     funjit_dynasm!(ops ; mov rsi, rax);
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                '\\' => {
+                    call_external!(ops, eval::Eval::pop);
+                    funjit_dynasm!(ops ; mov [rsp + 8], rax);
+                    call_external!(ops, eval::Eval::pop);
+                    funjit_dynasm!(ops
+                        ; mov rsi, [rsp + 8]
+                        ; mov [rsp + 8], rax
+                    );
+                    call_external!(ops, eval::Eval::push);
+                    funjit_dynasm!(ops ; mov rsi, [rsp + 8]);
                     call_external!(ops, eval::Eval::push);
                 }
 
@@ -141,15 +155,27 @@ impl Block {
                     call_external!(ops, eval::Eval::push);
                 }
 
-                '$' => {
-                    call_external!(ops, eval::Eval::pop);
+                '/' => {
+                    binop!(ops);
+                    funjit_dynasm!(ops
+                        ; xor rdx, rdx
+                        ; idiv rsi
+                        ; mov rsi, rax
+                    );
+                    call_external!(ops, eval::Eval::push);
                 }
 
-                _ => (),
+                '$' => call_external!(ops, eval::Eval::pop),
+
+                _ => {
+                    println!("Unhandled instruction: {}\n", c);
+                    break;
+                }
             }
         }
 
         set_pc!(ops, self.pc);
+        set_delta!(ops, self.delta);
 
         if self.loops {
             funjit_dynasm!(ops
@@ -192,7 +218,6 @@ impl Jit {
     pub fn next_block(space: &space::Funge93, mut pc: space::Pos, mut delta: space::Pos) -> Block {
         let mut block = Block::default();
         let mut seen = HashSet::new();
-        seen.insert(pc);
 
         loop {
             match space.get(pc) {
@@ -237,16 +262,6 @@ impl Jit {
         let mut blocks: HashMap<space::Pos, CompiledBlock> = HashMap::new();
 
         loop {
-            if !blocks.contains_key(&eval.pc) {
-                let block = Jit::next_block(&eval.cells, eval.pc, eval.delta);
-                blocks.insert(eval.pc, block.compile());
-            }
-
-            let compiled_block = blocks.get(&eval.pc).unwrap();
-            if compiled_block.run(eval) {
-                break;
-            }
-
             // at this point we should be at a control instruction, so update delta and take a step
             // to find the next sequence.
             match eval.cells.get(eval.pc) {
@@ -266,9 +281,32 @@ impl Jit {
                     }
                 }
 
-                c => {
-                    println!("Unhandled control instruction: {}\n", c);
-                    break;
+                '?' => match rand::random::<usize>() % 4 {
+                    0 => eval.delta = space::Pos::north(),
+                    1 => eval.delta = space::Pos::east(),
+                    2 => eval.delta = space::Pos::south(),
+                    _ => eval.delta = space::Pos::west(),
+                },
+
+                // everything else should be compiled
+                _ => {
+                    if !blocks.contains_key(&eval.pc) {
+
+                        // NOTE: there's no special handling for when the blocks are empty, as the
+                        // compiled function will end up setting the pc and delta. This happens
+                        // when a block is made up entirely of instructions that change the
+                        // direction of the cursor, or would 
+                        let block = Jit::next_block(&eval.cells, eval.pc, eval.delta);
+                        blocks.insert(eval.pc, block.compile());
+                    }
+
+                    let compiled_block = blocks.get(&eval.pc).unwrap();
+                    if compiled_block.run(eval) {
+                        break;
+                    }
+
+                    // no need to update pc, the compiled function does that
+                    continue;
                 }
             }
 
