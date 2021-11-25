@@ -137,6 +137,18 @@ impl Block {
                     call_external!(ops, eval::Eval::push);
                 }
 
+                '!' => {
+                    call_external!(ops, eval::Eval::pop);
+                    funjit_dynasm!(ops
+                        ; mov rsi, QWORD 0
+                        ; cmp rax, rsi
+                        ; jne >write
+                        ; inc rsi
+                        ; write:
+                    );
+                    call_external!(ops, eval::Eval::push);
+                }
+
                 '+' => {
                     binop!(ops);
                     funjit_dynasm!(ops ; add rsi, rax);
@@ -161,6 +173,16 @@ impl Block {
                         ; xor rdx, rdx
                         ; idiv rsi
                         ; mov rsi, rax
+                    );
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                '%' => {
+                    binop!(ops);
+                    funjit_dynasm!(ops
+                        ; xor rdx, rdx
+                        ; idiv rsi
+                        ; mov rsi, rdx
                     );
                     call_external!(ops, eval::Eval::push);
                 }
