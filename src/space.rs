@@ -55,8 +55,8 @@ pub struct Funge93 {
 }
 
 impl Funge93 {
-    const WIDTH: usize = 80;
-    const HEIGHT: usize = 24;
+    pub const WIDTH: usize = 80;
+    pub const HEIGHT: usize = 24;
 
     pub fn new() -> Self {
         Funge93 {

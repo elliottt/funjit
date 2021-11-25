@@ -1,5 +1,5 @@
 use rand;
-use std::io::{self, Stdin, BufReader, prelude::*};
+use std::io::{self, BufReader, prelude::*};
 
 use super::space;
 
@@ -21,6 +21,26 @@ impl Eval {
             stack: Vec::new(),
             pc: space::Pos::new(0, 0),
             delta: space::Pos::new(1, 0),
+        }
+    }
+
+    pub fn get(&mut self) -> isize {
+        let y = self.pop();
+        let x = self.pop();
+        if y >= 0 && y < space::Funge93::HEIGHT as isize && x >= 0 && x < space::Funge93::WIDTH as isize {
+            self.cells.get(space::Pos::new(x,y)) as isize
+        } else {
+            0
+        }
+    }
+
+    pub fn put(&mut self) {
+        let y = self.pop();
+        let x = self.pop();
+        let v = self.pop();
+        if y >= 0 && y < space::Funge93::HEIGHT as isize && x >= 0 && x < space::Funge93::WIDTH as isize {
+            let cell = self.cells.get_mut(space::Pos::new(x,y));
+            *cell = char::from_u32(v as u32).unwrap();
         }
     }
 

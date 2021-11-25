@@ -149,6 +149,24 @@ impl Block {
                     call_external!(ops, eval::Eval::push);
                 }
 
+                '`' => {
+                    binop!(ops);
+                    funjit_dynasm!(ops
+                        ; cmp rax, rsi
+                        ; mov rsi, QWORD 0
+                        ; jle >write
+                        ; inc rsi
+                        ; write:
+                    );
+                    call_external!(ops, eval::Eval::push);
+                }
+
+                'g' => {
+                    call_external!(ops, eval::Eval::get);
+                    funjit_dynasm!(ops ; mov rsi, rax);
+                    call_external!(ops, eval::Eval::push);
+                }
+
                 '+' => {
                     binop!(ops);
                     funjit_dynasm!(ops ; add rsi, rax);
@@ -245,7 +263,15 @@ impl Jit {
             match space.get(pc) {
                 '_' | '|' | '?' => break,
 
-                'p' => block.mutates = true,
+                'p' => {
+                    block.mutates = true;
+                    break;
+                }
+
+                '@' => {
+                    block.terminates = true;
+                    break;
+                }
 
                 '^' => delta = space::Pos::north(),
                 '>' => delta = space::Pos::east(),
@@ -255,11 +281,6 @@ impl Jit {
                 '#' => pc += &delta,
 
                 ' ' => (),
-
-                '@' => {
-                    block.terminates = true;
-                    break;
-                }
 
                 c => block.code.push(c),
             }
@@ -309,6 +330,11 @@ impl Jit {
                     2 => eval.delta = space::Pos::south(),
                     _ => eval.delta = space::Pos::west(),
                 },
+
+                'p' => {
+                    blocks.clear();
+                    eval.put();
+                }
 
                 // everything else should be compiled
                 _ => {
