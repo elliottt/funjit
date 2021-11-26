@@ -73,8 +73,11 @@ impl State {
         let mut buf = [0; 1];
 
         // NOTE: unwrap might cause issues here
-        self.input.read(&mut buf).unwrap();
-        self.push(buf[0] as isize);
+        if let Ok(()) = self.input.read_exact(&mut buf) {
+            self.push(buf[0] as isize);
+        } else {
+            self.push(-1);
+        }
     }
 
     pub fn output(&mut self) {
