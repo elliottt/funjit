@@ -390,14 +390,14 @@ impl Jit {
                 b'v' => delta = space::Pos::south(),
                 b'<' => delta = space::Pos::west(),
 
-                b'#' => pc += &delta,
+                b'#' => pc.move_by(&delta),
 
                 b' ' => (),
 
                 c => block.code.push(c as char),
             }
 
-            pc += &delta;
+            pc.move_by(&delta);
 
             if seen.contains(&pc) {
                 block.loops = true;
@@ -469,7 +469,7 @@ impl Jit {
                 }
             }
 
-            eval.pc += &eval.delta;
+            eval.pc.move_by(&eval.delta);
         }
     }
 }

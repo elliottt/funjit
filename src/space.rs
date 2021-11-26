@@ -24,10 +24,8 @@ impl Pos {
     pub fn west() -> Self {
         Self::new(-1, 0)
     }
-}
 
-impl std::ops::AddAssign<&Pos> for Pos {
-    fn add_assign(&mut self, other: &Self) {
+    pub fn move_by(&mut self, other: &Self) {
         self.x += other.x;
         self.y += other.y;
         self.x = self.x.rem_euclid(Funge93::WIDTH as isize);
@@ -39,13 +37,13 @@ impl std::ops::AddAssign<&Pos> for Pos {
 fn test_pos_move() {
     {
         let mut pos = Pos::new(0, 0);
-        pos += &Pos::new(-1, 0);
+        pos.move_by(&Pos::new(-1, 0));
         assert_eq!(Funge93::WIDTH as isize - 1, pos.x);
     }
 
     {
         let mut pos = Pos::new(0, 0);
-        pos += &Pos::new(0, -1);
+        pos.move_by(&Pos::new(0, -1));
         assert_eq!(Funge93::HEIGHT as isize - 1, pos.y);
     }
 }
