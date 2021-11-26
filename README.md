@@ -6,7 +6,7 @@ A fun jit for befunge.
 
 - [x] befunge-93
 - [x] tracing jit in the style of [befunjit](https://github.com/adrianton3/befunjit)
-- [ ] befunge-98
+- [ ] direct stack manipulation instead of going through State::push/pop
 
 ## Running
 

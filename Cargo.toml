@@ -11,3 +11,9 @@ edition = "2018"
 "anyhow" = "1.0.45"
 "dynasm" = "1.1.*"
 "dynasmrt" = "1.1.*"
+
+[dev-dependencies]
+colored-diff = "0.2.*"
+
+[build-dependencies]
+anyhow = "1.0.45"

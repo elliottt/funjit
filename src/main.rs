@@ -5,6 +5,11 @@ extern crate rand;
 extern crate dynasm;
 extern crate dynasmrt;
 
+#[cfg(test)]
+pub mod test {
+    include!(concat!(env!("OUT_DIR"), "/exp_tests.rs"));
+}
+
 use clap::{Arg, App};
 
 mod space;
