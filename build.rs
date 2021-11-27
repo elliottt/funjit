@@ -11,13 +11,14 @@ use super::jit;
 use super::space;
 ";
 
+// TODO: this currently won't cause a failure if tests fail to terminate, and will just hang
+// instead.
 const TEST_TEMPLATE: &str = "
 #[test]
 fn test_%PREFIX%() {
     let prog = std::fs::read_to_string(\"%ROOT%/tests/%PREFIX%.bf\").expect(\"Failed to read test file\");
-    let mut jit = jit::Jit::new().unwrap();
-    let mut state = jit::State::new(space::Funge93::from_string(&prog));
-    jit.run(&mut state);
+    let mut jit = jit::Jit::new(space::Funge93::from_string(&prog));
+    jit.run();
 }
 ";
 

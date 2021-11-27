@@ -26,10 +26,9 @@ fn main() -> Result<(), anyhow::Error> {
     let file = matches.value_of("INPUT").unwrap();
 
     let prog = std::fs::read_to_string(file).expect("Failed to read test.bf");
-    let mut jit = jit::Jit::new()?;
-    let mut eval = jit::State::new(space::Funge93::from_string(&prog));
+    let mut jit = jit::Jit::new(space::Funge93::from_string(&prog));
 
-    jit.run(&mut eval);
+    jit.run();
 
     Ok(())
 }
