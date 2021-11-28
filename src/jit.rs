@@ -3,7 +3,7 @@ use dynasmrt::mmap::ExecutableBuffer;
 
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 use std::collections::{HashMap, HashSet};
-use std::io::{self, prelude::*, BufReader};
+use std::io::{self, prelude::*};
 
 use super::space;
 
@@ -31,18 +31,18 @@ macro_rules! prologue {
 }
 
 macro_rules! set_pc {
-    ($ops:ident, $pc:expr) => {
+    ($ops:ident, $i:ident, $pc:expr) => {
         funjit_dynasm!($ops ; mov rsi, QWORD $pc.x as _);
         funjit_dynasm!($ops ; mov rdx, QWORD $pc.y as _);
-        call_external!($ops, Jit::set_pc);
+        call_external!($ops, Jit::<$i>::set_pc);
     }
 }
 
 macro_rules! set_delta {
-    ($ops:ident, $pc:expr) => {
+    ($ops:ident, $i:ident, $pc:expr) => {
         funjit_dynasm!($ops ; mov rsi, QWORD $pc.x as _);
         funjit_dynasm!($ops ; mov rdx, QWORD $pc.y as _);
-        call_external!($ops, Jit::set_delta);
+        call_external!($ops, Jit::<$i>::set_delta);
     }
 }
 
@@ -70,10 +70,10 @@ macro_rules! call_external {
 // rsi = a
 // rax = b
 macro_rules! binop {
-    ($ops:ident) => {
-        call_external!($ops, Jit::pop);
+    ($ops:ident, $i:ident) => {
+        call_external!($ops, Jit::<$i>::pop);
         funjit_dynasm!($ops ; mov [rsp + 8], rax);
-        call_external!($ops, Jit::pop);
+        call_external!($ops, Jit::<$i>::pop);
         funjit_dynasm!($ops ; mov rsi, [rsp + 8]);
     }
 }
@@ -89,7 +89,7 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn compile(&self) -> CompiledBlock {
+    pub fn compile<I: IO>(&self) -> CompiledBlock<I> {
         let mut ops = dynasmrt::x64::Assembler::new().unwrap();
 
         let mut string_mode = false;
@@ -101,44 +101,44 @@ impl Block {
 
                 c if string_mode => {
                     funjit_dynasm!(ops ; mov rsi, QWORD c as _);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 c @ '0'..='9' => {
                     let val = c as isize - '0' as isize;
                     funjit_dynasm!(ops ; mov rsi, QWORD val as _);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 // would be nice to enforce that this is also the end of the instruction stream
                 '@' => break,
 
-                ',' => call_external!(ops, Jit::output),
-                '.' => call_external!(ops, Jit::output_number),
-                '~' => call_external!(ops, Jit::input),
-                '&' => call_external!(ops, Jit::input_number),
+                ',' => call_external!(ops, Jit::<I>::output),
+                '.' => call_external!(ops, Jit::<I>::output_number),
+                '~' => call_external!(ops, Jit::<I>::input),
+                '&' => call_external!(ops, Jit::<I>::input_number),
 
                 ':' => {
-                    call_external!(ops, Jit::peek);
+                    call_external!(ops, Jit::<I>::peek);
                     funjit_dynasm!(ops ; mov rsi, rax);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '\\' => {
-                    call_external!(ops, Jit::pop);
+                    call_external!(ops, Jit::<I>::pop);
                     funjit_dynasm!(ops ; mov [rsp + 8], rax);
-                    call_external!(ops, Jit::pop);
+                    call_external!(ops, Jit::<I>::pop);
                     funjit_dynasm!(ops
                         ; mov rsi, [rsp + 8]
                         ; mov [rsp + 8], rax
                     );
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                     funjit_dynasm!(ops ; mov rsi, [rsp + 8]);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '!' => {
-                    call_external!(ops, Jit::pop);
+                    call_external!(ops, Jit::<I>::pop);
                     funjit_dynasm!(ops
                         ; mov rsi, QWORD 0
                         ; cmp rax, rsi
@@ -146,11 +146,11 @@ impl Block {
                         ; inc rsi
                         ; write:
                     );
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '`' => {
-                    binop!(ops);
+                    binop!(ops, I);
                     funjit_dynasm!(ops
                         ; cmp rax, rsi
                         ; mov rsi, QWORD 0
@@ -158,54 +158,54 @@ impl Block {
                         ; inc rsi
                         ; write:
                     );
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 'g' => {
-                    call_external!(ops, Jit::get);
+                    call_external!(ops, Jit::<I>::get);
                     funjit_dynasm!(ops ; mov rsi, rax);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '+' => {
-                    binop!(ops);
+                    binop!(ops, I);
                     funjit_dynasm!(ops ; add rsi, rax);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '-' => {
-                    binop!(ops);
+                    binop!(ops, I);
                     funjit_dynasm!(ops ; sub rsi, rax);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '*' => {
-                    binop!(ops);
+                    binop!(ops, I);
                     funjit_dynasm!(ops ; imul rsi, rax);
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '/' => {
-                    binop!(ops);
+                    binop!(ops, I);
                     funjit_dynasm!(ops
                         ; xor rdx, rdx
                         ; idiv rsi
                         ; mov rsi, rax
                     );
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
                 '%' => {
-                    binop!(ops);
+                    binop!(ops, I);
                     funjit_dynasm!(ops
                         ; xor rdx, rdx
                         ; idiv rsi
                         ; mov rsi, rdx
                     );
-                    call_external!(ops, Jit::push);
+                    call_external!(ops, Jit::<I>::push);
                 }
 
-                '$' => call_external!(ops, Jit::pop),
+                '$' => call_external!(ops, Jit::<I>::pop),
 
                 _ => {
                     println!("Unhandled instruction: {}\n", c);
@@ -214,8 +214,8 @@ impl Block {
             }
         }
 
-        set_pc!(ops, self.pc);
-        set_delta!(ops, self.delta);
+        set_pc!(ops, I, self.pc);
+        set_delta!(ops, I, self.delta);
 
         if self.loops {
             funjit_dynasm!(ops
@@ -236,42 +236,82 @@ impl Block {
     }
 }
 
-pub struct CompiledBlock {
+pub struct CompiledBlock<I: IO> {
     _buffer: dynasmrt::mmap::ExecutableBuffer,
-    code: extern "sysv64" fn(&mut Jit) -> bool,
+    code: extern "sysv64" fn(&mut Jit<I>) -> bool,
 }
 
-impl CompiledBlock {
-    pub fn run(&self, state: &mut Jit) -> bool {
+impl<I: IO> CompiledBlock<I> {
+    pub fn run(&self, state: &mut Jit<I>) -> bool {
         (self.code)(state)
     }
 }
 
-pub struct IO {
-    input: Box<dyn BufRead + Send>,
-    output: Box<dyn Write + Send>,
+pub trait IO {
+    fn input_char(&mut self) -> Option<u8>;
+    fn input_number(&mut self) -> isize;
+    fn output_char(&mut self, c: u8);
+    fn output_number(&mut self, n: isize);
 }
 
-impl IO {
-    pub fn default() -> Self {
-        Self::new(Box::new(BufReader::new(io::stdin())), Box::new(io::stdout()))
+pub struct StdIO {
+    input: std::io::Stdin,
+    output: std::io::Stdout,
+}
+
+impl StdIO {
+    pub fn new() -> Self {
+        StdIO {
+            input: io::stdin(),
+            output: io::stdout(),
+        }
+    }
+}
+
+impl IO for StdIO {
+    fn input_char(&mut self) -> Option<u8> {
+        let mut buf = [0; 1];
+
+        // NOTE: unwrap might cause issues here
+        if let Ok(()) = self.input.read_exact(&mut buf) {
+            Some(buf[0])
+        } else {
+            None
+        }
     }
 
-    pub fn new(input: Box<dyn BufRead + Send>, output: Box<dyn Write + Send>) -> Self {
-        IO { input, output }
+    fn input_number(&mut self) -> isize {
+        let mut text = String::new();
+        self.input
+            .read_line(&mut text)
+            .expect("Failed to read a line");
+        text.trim()
+            .parse::<isize>()
+            .expect("Failed to read a number")
+    }
+
+    fn output_char(&mut self, c: u8) {
+        let buf = [c; 1];
+        self.output.write_all(&buf).unwrap();
+        self.output.flush().unwrap();
+    }
+
+    fn output_number(&mut self, n: isize) {
+        self.output.write_fmt(format_args!("{}", n)).unwrap();
+        self.output.flush().unwrap();
     }
 }
 
-pub struct Jit {
-    cells: space::Funge93,
-    io: IO,
-    stack: Vec<isize>,
-    pc: space::Pos,
-    delta: space::Pos,
+pub struct Jit<I: IO> {
+    pub cells: space::Funge93,
+    pub io: I,
+    pub stack: Vec<isize>,
+    pub pc: space::Pos,
+    pub delta: space::Pos,
 }
 
-impl Jit {
-    pub fn new(cells: space::Funge93, io: IO) -> Self {
+impl<I: IO> Jit<I> {
+    pub fn new(cells: space::Funge93, io: I) -> Self {
         Jit {
             cells,
             io,
@@ -323,11 +363,8 @@ impl Jit {
     }
 
     pub fn input(&mut self) {
-        let mut buf = [0; 1];
-
-        // NOTE: unwrap might cause issues here
-        if let Ok(()) = self.io.input.read_exact(&mut buf) {
-            self.push(buf[0] as isize);
+        if let Some(c) = self.io.input_char() {
+            self.push(c as isize)
         } else {
             self.push(-1);
         }
@@ -335,28 +372,17 @@ impl Jit {
 
     pub fn output(&mut self) {
         let val = self.pop();
-        let buf = [val as u8; 1];
-        self.io.output.write_all(&buf).unwrap();
-        self.io.output.flush().unwrap();
+        self.io.output_char(val as u8);
     }
 
     pub fn input_number(&mut self) {
-        let mut text = String::new();
-        self.io
-            .input
-            .read_line(&mut text)
-            .expect("Failed to read a line");
-        let num = text
-            .trim()
-            .parse::<isize>()
-            .expect("Failed to read a number");
+        let num = self.io.input_number();
         self.push(num);
     }
 
     pub fn output_number(&mut self) {
         let val = self.pop();
-        self.io.output.write_fmt(format_args!("{}", val)).unwrap();
-        self.io.output.flush().unwrap();
+        self.io.output_number(val);
     }
 
     pub fn pop(&mut self) -> isize {
@@ -379,9 +405,17 @@ impl Jit {
     pub fn next_block(space: &space::Funge93, mut pc: space::Pos, mut delta: space::Pos) -> Block {
         let mut block = Block::default();
         let mut seen = HashSet::new();
+        let mut string_mode = false;
 
         loop {
             match space.get(pc.x as usize, pc.y as usize) {
+                c if string_mode => {
+                    if c == b'"' {
+                        string_mode = !string_mode
+                    }
+                    block.code.push(c as char)
+                }
+
                 b'_' | b'|' | b'?' => break,
 
                 b'p' => {
@@ -401,9 +435,14 @@ impl Jit {
 
                 b'#' => pc.move_by(&delta),
 
-                b' ' => (),
+                b' ' if !string_mode => (),
 
-                c => block.code.push(c as char),
+                c => {
+                    if c == b'"' {
+                        string_mode = !string_mode
+                    }
+                    block.code.push(c as char)
+                }
             }
 
             pc.move_by(&delta);
@@ -423,7 +462,7 @@ impl Jit {
     }
 
     pub fn run(&mut self) {
-        let mut blocks: HashMap<space::Pos, CompiledBlock> = HashMap::new();
+        let mut blocks: HashMap<space::Pos, CompiledBlock<I>> = HashMap::new();
 
         loop {
             // at this point we should be at a control instruction, so update delta and take a step
@@ -464,7 +503,7 @@ impl Jit {
                         // compiled function will end up setting the pc and delta. This happens
                         // when a block is made up entirely of instructions that change the
                         // direction of the cursor, or whitespace.
-                        let block = Jit::next_block(&self.cells, self.pc, self.delta);
+                        let block = Self::next_block(&self.cells, self.pc, self.delta);
                         blocks.insert(self.pc, block.compile());
                     }
 
