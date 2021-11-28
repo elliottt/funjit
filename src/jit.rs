@@ -143,7 +143,7 @@ impl Block {
                 '!' => {
                     call_external!(ops, Jit::<I>::pop);
                     funjit_dynasm!(ops
-                        ; mov rsi, QWORD 0
+                        ; xor rsi, rsi
                         ; cmp rax, rsi
                         ; jne >write
                         ; inc rsi
@@ -156,7 +156,7 @@ impl Block {
                     binop!(ops, I);
                     funjit_dynasm!(ops
                         ; cmp rax, rsi
-                        ; mov rsi, QWORD 0
+                        ; xor rsi, rsi
                         ; jle >write
                         ; inc rsi
                         ; write:
