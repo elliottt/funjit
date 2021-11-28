@@ -67,14 +67,17 @@ macro_rules! call_external {
 }
 
 // a b --
-// rsi = a
-// rax = b
+// rax = a
+// rsi = b
 macro_rules! binop {
     ($ops:ident, $i:ident) => {
         call_external!($ops, Jit::<$i>::pop);
         funjit_dynasm!($ops ; mov [rsp + 8], rax);
         call_external!($ops, Jit::<$i>::pop);
-        funjit_dynasm!($ops ; mov rsi, [rsp + 8]);
+        funjit_dynasm!($ops
+            ; mov rsi, rax
+            ; mov rax, [rsp + 8]
+        );
     }
 }
 
@@ -186,20 +189,24 @@ impl Block {
                 }
 
                 '/' => {
-                    binop!(ops, I);
+                    call_external!(ops, Jit::<I>::pop);
+                    funjit_dynasm!(ops; mov [rsp + 0x8], rax);
+                    call_external!(ops, Jit::<I>::pop);
                     funjit_dynasm!(ops
                         ; xor rdx, rdx
-                        ; idiv rsi
+                        ; idiv [rsp + 0x8]
                         ; mov rsi, rax
                     );
                     call_external!(ops, Jit::<I>::push);
                 }
 
                 '%' => {
-                    binop!(ops, I);
+                    call_external!(ops, Jit::<I>::pop);
+                    funjit_dynasm!(ops; mov [rsp + 0x8], rax);
+                    call_external!(ops, Jit::<I>::pop);
                     funjit_dynasm!(ops
                         ; xor rdx, rdx
-                        ; idiv rsi
+                        ; idiv [rsp + 0x8]
                         ; mov rsi, rdx
                     );
                     call_external!(ops, Jit::<I>::push);
