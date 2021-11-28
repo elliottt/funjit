@@ -247,21 +247,34 @@ impl CompiledBlock {
     }
 }
 
+pub struct IO {
+    input: Box<dyn BufRead + Send>,
+    output: Box<dyn Write + Send>,
+}
+
+impl IO {
+    pub fn default() -> Self {
+        Self::new(Box::new(BufReader::new(io::stdin())), Box::new(io::stdout()))
+    }
+
+    pub fn new(input: Box<dyn BufRead + Send>, output: Box<dyn Write + Send>) -> Self {
+        IO { input, output }
+    }
+}
+
 pub struct Jit {
     cells: space::Funge93,
-    input: BufReader<Box<dyn Read + Send>>,
-    output: Box<dyn Write + Send>,
+    io: IO,
     stack: Vec<isize>,
     pc: space::Pos,
     delta: space::Pos,
 }
 
 impl Jit {
-    pub fn new(cells: space::Funge93) -> Self {
+    pub fn new(cells: space::Funge93, io: IO) -> Self {
         Jit {
             cells,
-            input: BufReader::new(Box::new(io::stdin())),
-            output: Box::new(io::stdout()),
+            io,
             stack: Vec::new(),
             pc: space::Pos::new(0, 0),
             delta: space::Pos::new(1, 0),
@@ -313,7 +326,7 @@ impl Jit {
         let mut buf = [0; 1];
 
         // NOTE: unwrap might cause issues here
-        if let Ok(()) = self.input.read_exact(&mut buf) {
+        if let Ok(()) = self.io.input.read_exact(&mut buf) {
             self.push(buf[0] as isize);
         } else {
             self.push(-1);
@@ -323,13 +336,14 @@ impl Jit {
     pub fn output(&mut self) {
         let val = self.pop();
         let buf = [val as u8; 1];
-        self.output.write_all(&buf).unwrap();
-        self.output.flush().unwrap();
+        self.io.output.write_all(&buf).unwrap();
+        self.io.output.flush().unwrap();
     }
 
     pub fn input_number(&mut self) {
         let mut text = String::new();
-        self.input
+        self.io
+            .input
             .read_line(&mut text)
             .expect("Failed to read a line");
         let num = text
@@ -341,8 +355,8 @@ impl Jit {
 
     pub fn output_number(&mut self) {
         let val = self.pop();
-        self.output.write_fmt(format_args!("{}", val)).unwrap();
-        self.output.flush().unwrap();
+        self.io.output.write_fmt(format_args!("{}", val)).unwrap();
+        self.io.output.flush().unwrap();
     }
 
     pub fn pop(&mut self) -> isize {

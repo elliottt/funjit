@@ -1,4 +1,3 @@
-
 extern crate anyhow;
 
 use std::env;
@@ -9,6 +8,9 @@ use std::path::Path;
 const TEST_PREFIX: &str = "
 use super::jit;
 use super::space;
+use std::io::{Cursor, Read};
+use std::fs::File;
+
 ";
 
 // TODO: this currently won't cause a failure if tests fail to terminate, and will just hang
@@ -17,13 +19,23 @@ const TEST_TEMPLATE: &str = "
 #[test]
 fn test_%PREFIX%() {
     let prog = std::fs::read_to_string(\"%ROOT%/tests/%PREFIX%.bf\").expect(\"Failed to read test file\");
-    let mut jit = jit::Jit::new(space::Funge93::from_string(&prog));
+
+    let mut input = String::new();
+    if let Ok(mut file) = File::open(\"%ROOT%/tests/%PREFIX%.bf.input\") {
+        file.read_to_string(&mut input).expect(\"Failed to read input\");
+    }
+
+    let io = jit::IO::new(
+        Box::new(Cursor::new(input)),
+        Box::new(Cursor::new(Vec::new())),
+    );
+
+    let mut jit = jit::Jit::new(space::Funge93::from_string(&prog), io);
     jit.run();
 }
 ";
 
 fn main() -> Result<(), anyhow::Error> {
-
     let out_dir = env::var("OUT_DIR")?;
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
     let dest = Path::new(&out_dir).join("exp_tests.rs");
