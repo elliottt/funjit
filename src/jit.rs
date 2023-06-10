@@ -1,6 +1,8 @@
-#[allow(unused_imports)]
+use cranelift::prelude::*;
+use cranelift::codegen::settings::{self, Configurable};
+use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_module::{default_libcall_names, Linkage, Module};
 use dynasmrt::mmap::ExecutableBuffer;
-
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, prelude::*};
@@ -315,6 +317,23 @@ pub struct Jit<I: IO> {
     pub stack: Vec<isize>,
     pub pc: space::Pos,
     pub delta: space::Pos,
+
+    pub module: JITModule,
+}
+
+fn make_module() -> JITModule {
+    let mut flag_builder = settings::builder();
+    flag_builder.set("use_colocated_libcalls", "false").unwrap();
+    flag_builder.set("is_pic", "false").unwrap();
+
+    let isa = cranelift_native::builder()
+        .unwrap_or_else(|msg| {
+            panic!("Host not supported: {}", msg);
+        })
+        .finish(settings::Flags::new(flag_builder))
+        .unwrap();
+
+    JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()))
 }
 
 impl<I: IO> Jit<I> {
@@ -325,6 +344,7 @@ impl<I: IO> Jit<I> {
             stack: Vec::new(),
             pc: space::Pos::new(0, 0),
             delta: space::Pos::new(1, 0),
+            module: make_module(),
         }
     }
 
